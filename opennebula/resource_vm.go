@@ -1,13 +1,15 @@
 package opennebula
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/helper/schema"
 	"log"
 	"strings"
 	"time"
+
+	"github.com/hashicorp/terraform/helper/resource"
+	"github.com/hashicorp/terraform/helper/schema"
 )
 
 type UserVm struct {
@@ -122,6 +124,16 @@ func resourceVm() *schema.Resource {
 				Computed:    true,
 				Description: "Current LCM state of the VM",
 			},
+			"wait_for_attribute": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "Wait for specific attribute from VM Info to become available during vm creation",
+			},
+			"ip_attribute": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "Use different attribute from VM Info. TEMPLATE CONTEXT ETH0_IP is the default value",
+			},
 		},
 	}
 }
@@ -149,6 +161,14 @@ func resourceVmCreate(d *schema.ResourceData, meta interface{}) error {
 			"Error waiting for virtual machine (%s) to be in state RUNNING: %s", d.Id(), err)
 	}
 
+	attribute := d.Get("wait_for_attribute").(string)
+	if attribute != "" {
+		err = waitForAttribute(d, meta, attribute)
+		if err != nil {
+			return fmt.Errorf("Error waiting for attribute %s of virtual machine %s: %s", attribute, d.Id(), err)
+		}
+	}
+
 	if _, err = changePermissions(intId(d.Id()), permission(d.Get("permissions").(string)), client, "one.vm.chmod"); err != nil {
 		return err
 	}
@@ -158,10 +178,8 @@ func resourceVmCreate(d *schema.ResourceData, meta interface{}) error {
 
 func resourceVmRead(d *schema.ResourceData, meta interface{}) error {
 	var vm *UserVm
-	var vms *UserVms
+	var attributes map[string]string
 
-	client := meta.(*Client)
-	found := false
 	name := d.Get("name").(string)
 	if name == "" {
 		name = d.Get("instance").(string)
@@ -169,41 +187,19 @@ func resourceVmRead(d *schema.ResourceData, meta interface{}) error {
 
 	// Try to find the vm by ID, if specified
 	if d.Id() != "" {
+		client := meta.(*Client)
 		resp, err := client.Call("one.vm.info", intId(d.Id()))
 		if err == nil {
-			found = true
 			if err = xml.Unmarshal([]byte(resp), &vm); err != nil {
 				return err
 			}
+			attributes = parseVMInfo([]byte(resp))
 		} else {
 			log.Printf("Could not find VM by ID %s", d.Id())
 		}
-	}
-
-	// Otherwise, try to find the vm by (user, name) as the de facto compound primary key
-	if d.Id() == "" || !found {
-		resp, err := client.Call("one.vmpool.info", -3, -1, -1)
-		if err != nil {
-			return err
-		}
-
-		if err = xml.Unmarshal([]byte(resp), &vms); err != nil {
-			return err
-		}
-
-		for _, v := range vms.UserVm {
-			if v.Name == name {
-				vm = v
-				found = true
-				break
-			}
-		}
-
-		if !found || vm == nil {
-			d.SetId("")
-			log.Printf("Could not find vm with name %s for user %s", name, client.Username)
-			return nil
-		}
+	} else {
+		fmt.Errorf("VM ID not set for VM: %s", name)
+		return nil
 	}
 
 	d.SetId(vm.Id)
@@ -214,7 +210,12 @@ func resourceVmRead(d *schema.ResourceData, meta interface{}) error {
 	d.Set("gname", vm.Gname)
 	d.Set("state", vm.State)
 	d.Set("lcmstate", vm.LcmState)
-	d.Set("ip", vm.VmTemplate.Context.IP)
+	ipAttribute := d.Get("ip_attribute").(string)
+	if ipAttribute == "" {
+		ipAttribute = "TEMPLATE CONTEXT ETH0_IP"
+	}
+	ip := attributes[ipAttribute]
+	d.Set("ip", ip)
 	d.Set("permissions", permissionString(vm.Permissions))
 
 	return nil
@@ -304,4 +305,88 @@ func waitForVmState(d *schema.ResourceData, meta interface{}, state string) (int
 	}
 
 	return stateConf.WaitForState()
+}
+
+func waitForAttribute(d *schema.ResourceData, meta interface{}, attributeName string) error {
+	var vm UserVm
+	client := meta.(*Client)
+
+	log.Printf("Waiting for VM (%s) to have attribute %s", d.Id(), attributeName)
+
+	stateConf := &resource.StateChangeConf{
+		Pending: []string{"attributeNotFound"},
+		Target:  []string{attributeName},
+		Refresh: func() (interface{}, string, error) {
+			log.Println("Refreshing VM info...")
+			if d.Id() != "" {
+				attributes, err := loadVMInfo(client, intId(d.Id()))
+				if err == nil {
+					if _, present := attributes[attributeName]; present {
+						return &vm, attributeName, nil
+					}
+				} else {
+					return nil, "", fmt.Errorf("Could not find VM by ID %s", d.Id())
+				}
+			}
+			return nil, "attributeNotFound", nil
+		},
+		Timeout:    10 * time.Minute,
+		Delay:      10 * time.Second,
+		MinTimeout: 3 * time.Second,
+	}
+
+	_, err := stateConf.WaitForState()
+	return err
+}
+
+func loadVMInfo(client *Client, id int) (map[string]string, error) {
+	resp, err := client.Call("one.vm.info", id)
+	if err == nil {
+		return parseVMInfo([]byte(resp)), nil
+	} else {
+		return nil, err
+	}
+}
+
+func parseVMInfo(data []byte) map[string]string {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		t, _ := decoder.Token()
+		if t == nil {
+			break
+		}
+
+		switch tt := t.(type) {
+		case xml.StartElement:
+			if tt.Name.Local == "VM" {
+				return parseSubTree(decoder, "VM")
+			}
+		}
+	}
+
+	return make(map[string]string)
+}
+
+func parseSubTree(decoder *xml.Decoder, endElement string) map[string]string {
+	attributes := make(map[string]string)
+	var path []string
+	for {
+		t, _ := decoder.Token()
+		switch tt := t.(type) {
+		case xml.StartElement:
+			path = append(path, tt.Name.Local)
+		case xml.CharData:
+			value := strings.TrimSpace(string(tt))
+			if len(value) > 0 {
+				attributes[strings.Join(path, " ")] = value
+			}
+		case xml.EndElement:
+			if tt.Name.Local == endElement {
+				return attributes
+			}
+			if path[len(path)-1] == tt.Name.Local {
+				path = path[:len(path)-1]
+			}
+		}
+	}
 }
