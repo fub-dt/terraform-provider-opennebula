@@ -132,7 +132,7 @@ func resourceVm() *schema.Resource {
 			"ip_attribute": {
 				Type:        schema.TypeString,
 				Optional:    true,
-				Description: "Use different attribute from VM Info. TEMPLATE CONTEXT ETH0_IP is the default value",
+				Description: "Use different attribute from VM Info. TEMPLATE/CONTEXT/ETH0_IP is the default value",
 			},
 		},
 	}
@@ -212,7 +212,7 @@ func resourceVmRead(d *schema.ResourceData, meta interface{}) error {
 	d.Set("lcmstate", vm.LcmState)
 	ipAttribute := d.Get("ip_attribute").(string)
 	if ipAttribute == "" {
-		ipAttribute = "TEMPLATE CONTEXT ETH0_IP"
+		ipAttribute = "TEMPLATE/CONTEXT/ETH0_IP"
 	}
 	ip := attributes[ipAttribute]
 	d.Set("ip", ip)
@@ -372,13 +372,18 @@ func parseSubTree(decoder *xml.Decoder, endElement string) map[string]string {
 	var path []string
 	for {
 		t, _ := decoder.Token()
+		if t == nil {
+			log.Println("unexpected end of xml file")
+			return attributes
+		}
+
 		switch tt := t.(type) {
 		case xml.StartElement:
 			path = append(path, tt.Name.Local)
 		case xml.CharData:
 			value := strings.TrimSpace(string(tt))
 			if len(value) > 0 {
-				attributes[strings.Join(path, " ")] = value
+				attributes[strings.Join(path, "/")] = value
 			}
 		case xml.EndElement:
 			if tt.Name.Local == endElement {
