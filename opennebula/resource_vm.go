@@ -193,7 +193,9 @@ func resourceVmRead(d *schema.ResourceData, meta interface{}) error {
 			if err = xml.Unmarshal([]byte(resp), &vm); err != nil {
 				return err
 			}
-			attributes = parseVMInfo([]byte(resp))
+			if attributes, err = parseVMInfo([]byte(resp)); err != nil {
+				return err
+			}
 		} else {
 			log.Printf("Could not find VM by ID %s", d.Id())
 		}
@@ -339,21 +341,21 @@ func waitForAttribute(d *schema.ResourceData, meta interface{}, attributeName st
 	return err
 }
 
-func loadVMInfo(client *Client, id int) (map[string]string, error) {
+func loadVMInfo(client OneClient, id int) (map[string]string, error) {
 	resp, err := client.Call("one.vm.info", id)
 	if err == nil {
-		return parseVMInfo([]byte(resp)), nil
+		return parseVMInfo([]byte(resp))
 	} else {
 		return nil, err
 	}
 }
 
-func parseVMInfo(data []byte) map[string]string {
+func parseVMInfo(data []byte) (map[string]string, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	for {
-		t, _ := decoder.Token()
-		if t == nil {
-			break
+		t, err := decoder.Token()
+		if t == nil || err != nil {
+			return nil, err
 		}
 
 		switch tt := t.(type) {
@@ -363,18 +365,15 @@ func parseVMInfo(data []byte) map[string]string {
 			}
 		}
 	}
-
-	return make(map[string]string)
 }
 
-func parseSubTree(decoder *xml.Decoder, endElement string) map[string]string {
+func parseSubTree(decoder xml.TokenReader, endElement string) (map[string]string, error) {
 	attributes := make(map[string]string)
 	var path []string
 	for {
-		t, _ := decoder.Token()
-		if t == nil {
-			log.Println("unexpected end of xml file")
-			return attributes
+		t, err := decoder.Token()
+		if t == nil || err != nil {
+			return nil, err
 		}
 
 		switch tt := t.(type) {
@@ -382,12 +381,16 @@ func parseSubTree(decoder *xml.Decoder, endElement string) map[string]string {
 			path = append(path, tt.Name.Local)
 		case xml.CharData:
 			value := strings.TrimSpace(string(tt))
-			if len(value) > 0 {
-				attributes[strings.Join(path, "/")] = value
+			if len(value) > 0 && len(path) > 0 {
+				key := strings.Join(path, "/")
+				if presentValue, isPresent := attributes[key]; isPresent {
+					value = presentValue + " " + value
+				}
+				attributes[key] = value
 			}
 		case xml.EndElement:
 			if tt.Name.Local == endElement {
-				return attributes
+				return attributes, nil
 			}
 			if path[len(path)-1] == tt.Name.Local {
 				path = path[:len(path)-1]

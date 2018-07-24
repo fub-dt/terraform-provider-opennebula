@@ -2,10 +2,16 @@ package opennebula
 
 import (
 	"fmt"
-	"github.com/kolo/xmlrpc"
 	"log"
 	"strconv"
+
+	"github.com/kolo/xmlrpc"
 )
+
+type OneClient interface {
+	Call(command string, args ...interface{}) (string, error)
+	IsSuccess(result []interface{}) (res string, err error)
+}
 
 type Client struct {
 	Rcp      xmlrpc.Client
