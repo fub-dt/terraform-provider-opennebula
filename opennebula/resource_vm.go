@@ -12,6 +12,13 @@ import (
 	"github.com/hashicorp/terraform/helper/schema"
 )
 
+const (
+	PathSeparator      = "/"
+	ValueSepartor      = " "
+	VmElementName      = "VM"
+	DefaultIpAttribute = "TEMPLATE/CONTEXT/ETH0_IP"
+)
+
 type UserVm struct {
 	Id          string       `xml:"ID"`
 	Name        string       `xml:"NAME"`
@@ -214,7 +221,7 @@ func resourceVmRead(d *schema.ResourceData, meta interface{}) error {
 	d.Set("lcmstate", vm.LcmState)
 	ipAttribute := d.Get("ip_attribute").(string)
 	if ipAttribute == "" {
-		ipAttribute = "TEMPLATE/CONTEXT/ETH0_IP"
+		ipAttribute = DefaultIpAttribute
 	}
 	ip := attributes[ipAttribute]
 	d.Set("ip", ip)
@@ -360,8 +367,8 @@ func parseVMInfo(data []byte) (map[string]string, error) {
 
 		switch tt := t.(type) {
 		case xml.StartElement:
-			if tt.Name.Local == "VM" {
-				return parseSubTree(decoder, "VM")
+			if tt.Name.Local == VmElementName {
+				return parseSubTree(decoder, VmElementName)
 			}
 		}
 	}
@@ -382,9 +389,9 @@ func parseSubTree(decoder xml.TokenReader, endElement string) (map[string]string
 		case xml.CharData:
 			value := strings.TrimSpace(string(tt))
 			if len(value) > 0 && len(path) > 0 {
-				key := strings.Join(path, "/")
+				key := strings.Join(path, PathSeparator)
 				if presentValue, isPresent := attributes[key]; isPresent {
-					value = presentValue + " " + value
+					value = presentValue + ValueSepartor + value
 				}
 				attributes[key] = value
 			}
