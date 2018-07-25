@@ -205,13 +205,12 @@ func resourceVmRead(d *schema.ResourceData, meta interface{}) error {
 			}
 		} else {
 			log.Printf("Could not find VM by ID %s", d.Id())
+			return err
 		}
 	} else {
-		fmt.Errorf("VM ID not set for VM: %s", name)
-		return nil
+		return fmt.Errorf("VM ID not set for VM: %s", name)
 	}
 
-	d.SetId(vm.Id)
 	d.Set("instance", vm.Name)
 	d.Set("uid", vm.Uid)
 	d.Set("gid", vm.Gid)
