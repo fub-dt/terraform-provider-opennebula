@@ -1,7 +1,6 @@
 package opennebula
 
 import (
-	"bytes"
 	"encoding/xml"
 	"fmt"
 	"log"
@@ -200,7 +199,7 @@ func resourceVmRead(d *schema.ResourceData, meta interface{}) error {
 			if err = xml.Unmarshal([]byte(resp), &vm); err != nil {
 				return err
 			}
-			if attributes, err = parseVMInfo([]byte(resp)); err != nil {
+			if attributes, err = parseResponse([]byte(resp), VmElementName); err != nil {
 				return err
 			}
 		} else {
@@ -350,57 +349,8 @@ func waitForAttribute(d *schema.ResourceData, meta interface{}, attributeName st
 func loadVMInfo(client OneClient, id int) (map[string]string, error) {
 	resp, err := client.Call("one.vm.info", id)
 	if err == nil {
-		return parseVMInfo([]byte(resp))
+		return parseResponse([]byte(resp), VmElementName)
 	} else {
 		return nil, err
-	}
-}
-
-func parseVMInfo(data []byte) (map[string]string, error) {
-	decoder := xml.NewDecoder(bytes.NewReader(data))
-	for {
-		t, err := decoder.Token()
-		if t == nil || err != nil {
-			return nil, err
-		}
-
-		switch tt := t.(type) {
-		case xml.StartElement:
-			if tt.Name.Local == VmElementName {
-				return parseSubTree(decoder, VmElementName)
-			}
-		}
-	}
-}
-
-func parseSubTree(decoder xml.TokenReader, endElement string) (map[string]string, error) {
-	attributes := make(map[string]string)
-	var path []string
-	for {
-		t, err := decoder.Token()
-		if t == nil || err != nil {
-			return nil, err
-		}
-
-		switch tt := t.(type) {
-		case xml.StartElement:
-			path = append(path, tt.Name.Local)
-		case xml.CharData:
-			value := strings.TrimSpace(string(tt))
-			if len(value) > 0 && len(path) > 0 {
-				key := strings.Join(path, PathSeparator)
-				if presentValue, isPresent := attributes[key]; isPresent {
-					value = presentValue + ValueSepartor + value
-				}
-				attributes[key] = value
-			}
-		case xml.EndElement:
-			if tt.Name.Local == endElement {
-				return attributes, nil
-			}
-			if path[len(path)-1] == tt.Name.Local {
-				path = path[:len(path)-1]
-			}
-		}
 	}
 }
