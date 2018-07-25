@@ -16,6 +16,8 @@ const (
 	ValueSepartor      = " "
 	VmElementName      = "VM"
 	DefaultIpAttribute = "TEMPLATE/CONTEXT/ETH0_IP"
+	StateAttribute     = "STATE"
+	LcmStateAttribute  = "LCM_STATE"
 )
 
 func resourceVm() *schema.Resource {
@@ -185,8 +187,8 @@ func saveVmInfoToState(state *schema.ResourceData, attributes map[string]string)
 	state.Set("gid", convertToInt(attributes["GID"]))
 	state.Set("uname", attributes["UNAME"])
 	state.Set("gname", attributes["GNAME"])
-	state.Set("state", convertToInt(attributes["STATE"]))
-	state.Set("lcmstate", convertToInt(attributes["LCM_STATE"]))
+	state.Set("state", convertToInt(attributes[StateAttribute]))
+	state.Set("lcmstate", convertToInt(attributes[LcmStateAttribute]))
 	ipAttribute := state.Get("ip_attribute").(string)
 	if ipAttribute == "" {
 		ipAttribute = DefaultIpAttribute
@@ -282,8 +284,8 @@ func waitForVmState(d *schema.ResourceData, meta interface{}, state string) (int
 			if d.Id() != "" {
 				attributes, err := loadVMInfo(client, intId(d.Id()))
 				if err == nil {
-					state := attributes["STATE"]
-					lcmState := attributes["LCM_STATE"]
+					state := attributes[StateAttribute]
+					lcmState := attributes[LcmStateAttribute]
 					log.Printf("VM is currently in state %s and in LCM state %s", state, lcmState)
 					if state == "3" && lcmState == "3" {
 						return &attributes, "running", nil
