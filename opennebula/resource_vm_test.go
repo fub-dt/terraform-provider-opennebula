@@ -81,6 +81,8 @@ func TestAccVm(t *testing.T) {
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "gid"),
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "uname"),
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "gname"),
+					resource.TestCheckResourceAttrSet("opennebula_vm.test", "state"),
+					resource.TestCheckResourceAttrSet("opennebula_vm.test", "lcmstate"),
 					testAccCheckVmPermissions(&Permissions{
 						Owner_U: 1,
 						Owner_M: 1,
@@ -158,7 +160,9 @@ func testAccCheckVmPermissions(expected *Permissions) resource.TestCheckFunc {
 				return fmt.Errorf("Expected vm %s to exist when checking permissions", rs.Primary.ID)
 			}
 
-			var vm UserVm
+			var vm struct {
+				Permissions *Permissions `xml:"PERMISSIONS"`
+			}
 			if err = xml.Unmarshal([]byte(resp), &vm); err != nil {
 				return err
 			}
