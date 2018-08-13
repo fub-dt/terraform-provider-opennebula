@@ -48,6 +48,7 @@ var vmConfigBasicTemplate = `
 resource "opennebula_vm" "test" {
   name = "test-vm"
   permissions = "642"
+  user_template_attributes = "attr1=avalue\nattr2=anothervalue"
   %s
 }
 `
@@ -56,6 +57,7 @@ var vmConfigUpdateTemplate = `
 resource "opennebula_vm" "test" {
   name = "test-vm"
   permissions = "666"
+  user_template_attributes = "attr1=changed\nattr2=anothervalue"
   %s
 }
 `
@@ -76,6 +78,7 @@ func TestAccVm(t *testing.T) {
 					resource.TestCheckResourceAttr("opennebula_vm.test", "wait_for_attribute", getWaitForAttribute()),
 					resource.TestCheckResourceAttr("opennebula_vm.test", "ip_attribute", getIpAttribute()),
 					resource.TestCheckResourceAttr("opennebula_vm.test", "permissions", "642"),
+					resource.TestCheckResourceAttr("opennebula_vm.test", "user_template_attributes", "attr1=avalue\nattr2=anothervalue"),
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "ip"),
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "uid"),
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "gid"),
@@ -95,6 +98,7 @@ func TestAccVm(t *testing.T) {
 				Config: updateConfig,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr("opennebula_vm.test", "permissions", "666"),
+					resource.TestCheckResourceAttr("opennebula_vm.test", "user_template_attributes", "attr1=changed\nattr2=anothervalue"),
 					testAccCheckVmPermissions(&Permissions{
 						Owner_U: 1,
 						Owner_M: 1,

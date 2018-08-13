@@ -117,6 +117,11 @@ func resourceVm() *schema.Resource {
 				Optional:    true,
 				Description: "Use different attribute from VM Info. TEMPLATE/CONTEXT/ETH0_IP is the default value",
 			},
+			"user_template_attributes": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "User template attributes. A new line (\\n) separated list of name=value pairs",
+			},
 		},
 	}
 }
@@ -129,7 +134,7 @@ func resourceVmCreate(d *schema.ResourceData, meta interface{}) error {
 		d.Get("template_id"),
 		d.Get("name"),
 		false,
-		"",
+		d.Get("user_template_attributes"),
 		false,
 	)
 	if err != nil {
@@ -242,8 +247,12 @@ func resourceVmUpdate(d *schema.ResourceData, meta interface{}) error {
 			return err
 		}
 		log.Printf("[INFO] Successfully updated VM %s\n", resp)
-	} else {
-		log.Printf("[INFO] Sorry, only 'permissions' updates are supported at the moment.")
+	}
+
+	if d.HasChange("user_template_attributes") {
+		if err := updateUserTemplate(client, intId(d.Id()), d.Get("user_template_attributes").(string)); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -295,7 +304,6 @@ func waitForVmState(d *schema.ResourceData, meta interface{}, state string) (int
 				} else {
 					return nil, "", fmt.Errorf("Could not find VM by ID %s", d.Id())
 				}
-
 			}
 			return nil, "anythingelse", nil
 		},
@@ -345,5 +353,15 @@ func loadVMInfo(client OneClient, id int) (map[string]string, error) {
 	} else {
 		log.Printf("Could not load VM Info with ID %d due to error: %s", id, err)
 		return nil, err
+	}
+}
+
+func updateUserTemplate(client OneClient, id int, attribute string) error {
+	resp, err := client.Call("one.vm.update", id, attribute, 1)
+	if err == nil {
+		log.Printf("[INFO] Successfully updated user template for VM %s\n", resp)
+		return nil
+	} else {
+		return err
 	}
 }
