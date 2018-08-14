@@ -44,11 +44,115 @@ func TestLoadVMInfoWithError(t *testing.T) {
 	assert.Empty(t, attributes)
 }
 
+func TestSynchronizeUserTemplateAttributes(t *testing.T) {
+	state := map[string]interface{}{
+		"attr1": "value1",
+		"attr2": "value2",
+		"attr3": "value3",
+	}
+
+	vmInfo := map[string]string{
+		"USER_TEMPLATE/ATTR0": "value0",
+		"USER_TEMPLATE/ATTR1": "anotherValue",
+		"USER_TEMPLATE/ATTR2": "value2",
+	}
+
+	synchronized := synchronizeUserTemplateAttributes(state, vmInfo)
+
+	expected := map[string]string{
+		"attr1": "anotherValue",
+		"attr2": "value2",
+		"attr3": "",
+	}
+	assert.Equal(t, expected, synchronized)
+}
+
+func TestSynchronizeUserTemplateAttributesEmptyState(t *testing.T) {
+	vmInfo := map[string]string{
+		"USER_TEMPLATE/ATTR0": "value0",
+		"USER_TEMPLATE/ATTR1": "anotherValue",
+		"USER_TEMPLATE/ATTR2": "value2",
+	}
+
+	synchronized := synchronizeUserTemplateAttributes(make(map[string]interface{}), vmInfo)
+	assert.Equal(t, make(map[string]string), synchronized)
+}
+
+func TestSynchronizeUserTemplateAttributesNilState(t *testing.T) {
+	vmInfo := map[string]string{
+		"USER_TEMPLATE/ATTR0": "value0",
+		"USER_TEMPLATE/ATTR1": "anotherValue",
+		"USER_TEMPLATE/ATTR2": "value2",
+	}
+
+	expected := make(map[string]string)
+
+	synchronized := synchronizeUserTemplateAttributes(nil, vmInfo)
+	assert.Equal(t, expected, synchronized)
+}
+
+func TestSynchronizeUserTemplateAttributesEmptyVmInfo(t *testing.T) {
+	state := map[string]interface{}{
+		"attr1": "value1",
+		"attr2": "value2",
+		"attr3": "value3",
+	}
+
+	synchronized := synchronizeUserTemplateAttributes(state, make(map[string]string))
+
+	expected := map[string]string{
+		"attr1": "",
+		"attr2": "",
+		"attr3": "",
+	}
+	assert.Equal(t, expected, synchronized)
+}
+
+func TestSynchronizeUserTemplateAttributesNilVmInfo(t *testing.T) {
+	state := map[string]interface{}{
+		"attr1": "value1",
+		"attr2": "value2",
+		"attr3": "value3",
+	}
+
+	synchronized := synchronizeUserTemplateAttributes(state, nil)
+
+	expected := map[string]string{
+		"attr1": "",
+		"attr2": "",
+		"attr3": "",
+	}
+	assert.Equal(t, expected, synchronized)
+}
+
+func TestBuildUserTemplateAttributesString(t *testing.T) {
+	m := map[string]interface{}{
+		"key1": "value1",
+		"key2": "value2",
+		"key3": "value3",
+	}
+	s := buildUserTemplateAttributesString(m)
+	expected := []string{"key1=value1", "key2=value2", "key3=value3"}
+	assert.ElementsMatch(t, expected, strings.Split(s, "\n"))
+}
+
+func TestBuildUserTemplateAttributesStringEmptyMap(t *testing.T) {
+	s := buildUserTemplateAttributesString(make(map[string]interface{}))
+	assert.Equal(t, "", s)
+}
+func TestBuildUserTemplateAttributesStringNilMap(t *testing.T) {
+	s := buildUserTemplateAttributesString(nil)
+	assert.Equal(t, "", s)
+}
+
 var vmConfigBasicTemplate = `
 resource "opennebula_vm" "test" {
   name = "test-vm"
   permissions = "642"
-  user_template_attributes = "attr1=avalue\nattr2=anothervalue"
+  user_template_attributes = {
+	"attr1" = "avalue"
+	"attr2" = "anothervalue"
+  }
   %s
 }
 `
@@ -57,7 +161,10 @@ var vmConfigUpdateTemplate = `
 resource "opennebula_vm" "test" {
   name = "test-vm"
   permissions = "666"
-  user_template_attributes = "attr1=changed\nattr2=anothervalue"
+  user_template_attributes = {
+	"attr1" = "changed"
+	"attr2" = "anothervalue"
+  }
   %s
 }
 `
@@ -78,7 +185,8 @@ func TestAccVm(t *testing.T) {
 					resource.TestCheckResourceAttr("opennebula_vm.test", "wait_for_attribute", getWaitForAttribute()),
 					resource.TestCheckResourceAttr("opennebula_vm.test", "ip_attribute", getIpAttribute()),
 					resource.TestCheckResourceAttr("opennebula_vm.test", "permissions", "642"),
-					resource.TestCheckResourceAttr("opennebula_vm.test", "user_template_attributes", "attr1=avalue\nattr2=anothervalue"),
+					resource.TestCheckResourceAttr("opennebula_vm.test", "user_template_attributes.attr1", "avalue"),
+					resource.TestCheckResourceAttr("opennebula_vm.test", "user_template_attributes.attr2", "anothervalue"),
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "ip"),
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "uid"),
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "gid"),
@@ -86,7 +194,7 @@ func TestAccVm(t *testing.T) {
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "gname"),
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "state"),
 					resource.TestCheckResourceAttrSet("opennebula_vm.test", "lcmstate"),
-					testAccCheckVmPermissions(&Permissions{
+					testAccCheckVmPermissions("opennebula_vm.test", &Permissions{
 						Owner_U: 1,
 						Owner_M: 1,
 						Group_U: 1,
@@ -98,8 +206,9 @@ func TestAccVm(t *testing.T) {
 				Config: updateConfig,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr("opennebula_vm.test", "permissions", "666"),
-					resource.TestCheckResourceAttr("opennebula_vm.test", "user_template_attributes", "attr1=changed\nattr2=anothervalue"),
-					testAccCheckVmPermissions(&Permissions{
+					resource.TestCheckResourceAttr("opennebula_vm.test", "user_template_attributes.attr1", "changed"),
+					resource.TestCheckResourceAttr("opennebula_vm.test", "user_template_attributes.attr2", "anothervalue"),
+					testAccCheckVmPermissions("opennebula_vm.test", &Permissions{
 						Owner_U: 1,
 						Owner_M: 1,
 						Group_U: 1,
@@ -154,31 +263,30 @@ func testAccCheckVmDestroy(s *terraform.State) error {
 	return nil
 }
 
-func testAccCheckVmPermissions(expected *Permissions) resource.TestCheckFunc {
+func testAccCheckVmPermissions(name string, expected *Permissions) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		client := testAccProvider.Meta().(*Client)
+		rs := s.RootModule().Resources[name]
 
-		for _, rs := range s.RootModule().Resources {
-			resp, err := client.Call("one.vm.info", intId(rs.Primary.ID), false)
-			if err != nil {
-				return fmt.Errorf("Expected vm %s to exist when checking permissions", rs.Primary.ID)
-			}
+		resp, err := client.Call("one.vm.info", intId(rs.Primary.ID), false)
+		if err != nil {
+			return fmt.Errorf("Expected vm %s to exist when checking permissions", rs.Primary.ID)
+		}
 
-			var vm struct {
-				Permissions *Permissions `xml:"PERMISSIONS"`
-			}
-			if err = xml.Unmarshal([]byte(resp), &vm); err != nil {
-				return err
-			}
+		var vm struct {
+			Permissions *Permissions `xml:"PERMISSIONS"`
+		}
+		if err = xml.Unmarshal([]byte(resp), &vm); err != nil {
+			return err
+		}
 
-			if !reflect.DeepEqual(vm.Permissions, expected) {
-				return fmt.Errorf(
-					"Permissions for vnet %s were expected to be %s. Instead, they were %s",
-					rs.Primary.ID,
-					permissionString(expected),
-					permissionString(vm.Permissions),
-				)
-			}
+		if !reflect.DeepEqual(vm.Permissions, expected) {
+			return fmt.Errorf(
+				"Permissions for vnet %s were expected to be %s. Instead, they were %s",
+				rs.Primary.ID,
+				permissionString(expected),
+				permissionString(vm.Permissions),
+			)
 		}
 
 		return nil

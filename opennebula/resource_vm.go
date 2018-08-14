@@ -118,9 +118,9 @@ func resourceVm() *schema.Resource {
 				Description: "Use different attribute from VM Info. TEMPLATE/CONTEXT/ETH0_IP is the default value",
 			},
 			"user_template_attributes": {
-				Type:        schema.TypeString,
+				Type:        schema.TypeMap,
 				Optional:    true,
-				Description: "User template attributes. A new line (\\n) separated list of name=value pairs",
+				Description: "User template attributes",
 			},
 		},
 	}
@@ -134,7 +134,7 @@ func resourceVmCreate(d *schema.ResourceData, meta interface{}) error {
 		d.Get("template_id"),
 		d.Get("name"),
 		false,
-		d.Get("user_template_attributes"),
+		buildUserTemplateAttributesString(d.Get("user_template_attributes").(map[string]interface{})),
 		false,
 	)
 	if err != nil {
@@ -201,6 +201,7 @@ func saveVmInfoToState(state *schema.ResourceData, attributes map[string]string)
 	ip := attributes[ipAttribute]
 	state.Set("ip", ip)
 	state.Set("permissions", permissionString(buildPermissions(attributes)))
+	state.Set("user_template_attributes", synchronizeUserTemplateAttributes(state.Get("user_template_attributes").(map[string]interface{}), attributes))
 }
 
 func buildPermissions(attributes map[string]string) *Permissions {
@@ -250,7 +251,8 @@ func resourceVmUpdate(d *schema.ResourceData, meta interface{}) error {
 	}
 
 	if d.HasChange("user_template_attributes") {
-		if err := updateUserTemplate(client, intId(d.Id()), d.Get("user_template_attributes").(string)); err != nil {
+		userTemplateAttributes := buildUserTemplateAttributesString(d.Get("user_template_attributes").(map[string]interface{}))
+		if err := updateUserTemplate(client, intId(d.Id()), userTemplateAttributes); err != nil {
 			return err
 		}
 	}
@@ -364,4 +366,24 @@ func updateUserTemplate(client OneClient, id int, attribute string) error {
 	} else {
 		return err
 	}
+}
+
+func synchronizeUserTemplateAttributes(state map[string]interface{}, vmInfo map[string]string) map[string]string {
+	synchronizedAttributes := make(map[string]string)
+
+	for key := range state {
+		synchronizedAttributes[key] = vmInfo["USER_TEMPLATE/"+strings.ToUpper(key)]
+	}
+
+	return synchronizedAttributes
+}
+
+func buildUserTemplateAttributesString(m map[string]interface{}) string {
+	pairs := make([]string, 0, len(m))
+
+	for key, value := range m {
+		pairs = append(pairs, key+"="+value.(string))
+	}
+
+	return strings.Join(pairs, "\n")
 }

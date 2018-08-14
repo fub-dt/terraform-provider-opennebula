@@ -27,3 +27,4 @@ tmp/
 .env
 test.go
 *.swp
+.vscode
