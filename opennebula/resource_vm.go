@@ -194,14 +194,18 @@ func saveVmInfoToState(state *schema.ResourceData, attributes map[string]string)
 	state.Set("gname", attributes["GNAME"])
 	state.Set("state", convertToInt(attributes[StateAttribute]))
 	state.Set("lcmstate", convertToInt(attributes[LcmStateAttribute]))
+	state.Set("ip", determineIp(state, attributes))
+	state.Set("permissions", permissionString(buildPermissions(attributes)))
+	userTemplateAttributes := synchronizeUserTemplateAttributes(state.Get("user_template_attributes").(map[string]interface{}), attributes)
+	state.Set("user_template_attributes", userTemplateAttributes)
+}
+
+func determineIp(state *schema.ResourceData, attributes map[string]string) string {
 	ipAttribute := state.Get("ip_attribute").(string)
 	if ipAttribute == "" {
 		ipAttribute = DefaultIpAttribute
 	}
-	ip := attributes[ipAttribute]
-	state.Set("ip", ip)
-	state.Set("permissions", permissionString(buildPermissions(attributes)))
-	state.Set("user_template_attributes", synchronizeUserTemplateAttributes(state.Get("user_template_attributes").(map[string]interface{}), attributes))
+	return attributes[ipAttribute]
 }
 
 func buildPermissions(attributes map[string]string) *Permissions {
